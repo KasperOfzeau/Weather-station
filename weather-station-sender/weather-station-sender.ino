@@ -22,69 +22,52 @@ float lux;
 #include <BH1750.h>
 BH1750 lightMeter;
 
-const char* ssid = "surebelletjes";
-const char* password = "OnlyYou197";
+const char* ssid = "";
+const char* password = "";
 
 const char* mqtt_server = "145.24.222.116";
 const char* mqtt_user = "minor";
 const char* mqtt_pass = "smartthings2023";
-const char* api_server = "http://145.24.222.116:8000/dashboard/weather/";
+const char* mqtt_topic = "weather";
 
 WiFiClient wifi_client;
-// WiFiClientSecure wifi_client;
 PubSubClient client(wifi_client);
 
-long last_msg = 0;
-char msg[50];
-int value = 0;
-
-void callback(char* topic, byte* message, unsigned int length);
 void reconnect();
 
 bool mqttConnect(){
   client.setServer(mqtt_server, 8884);
-  // Serial.println(CA_KEY);
-  Serial.print("Connecting to MQTT broker");
+  Serial.println("Connecting to MQTT broker");
   while(!client.connected()){
     if(client.connect("esp32", mqtt_user, mqtt_pass)){
       Serial.println("CONNECTED TO MQTT");
-    }else{
-      Serial.print("Failed with state ");
-      char err_buf[100];
-      Serial.println(client.state());
-      delay(2000);
     }
     Serial.print(".");
   }
   Serial.println();
-  client.subscribe("incoming");
   return true;
 }
 
 void initWiFi(){
   WiFi.mode(WIFI_STA);
-  // WiFi.begin(ssid, password, 11, bssid, true);
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi...");
+  Serial.println("Connecting to WiFi...");
   while(WiFi.status() != WL_CONNECTED){
     Serial.print(".");
     delay(500);
   }
   Serial.println(WiFi.localIP());
-  // wifi_client.setCACert(CA_KEY);
   mqttConnect();
- }
+}
 
 void setup() {
   // Start serial communication 
   Serial.begin(115200);
-
   // Initialize the DHT sensor
   dht.begin();
-
   Wire.begin();
+   // Initialize the light sensor
   lightMeter.begin();
-
   // Initialize WIFI
   initWiFi();
 }
@@ -99,11 +82,11 @@ void loop() {
   if(WiFi.status() == WL_CONNECTED){
     if(client.connected()){
        String data = "{\"user\":\"KasperOfzeau\", \"weather_station\": 4, \"data\": {\"temperature\":\""+ (String)temp+"\",\"humidity\":\""+ (String)hum+"\",\"light_intensity\":\""+ (String)lux+"\"}}";
-      if(!isnan(temp) && !isnan(hum)){
+      if(!isnan(temp) && !isnan(hum) && !isnan(lux)){
         Serial.print("Sent: ");
         Serial.println(data);
         const char* d = data.c_str();
-        client.publish("test", d);
+        client.publish(mqtt_topic, d);
       }
     }else{
       mqttConnect();
@@ -112,5 +95,5 @@ void loop() {
     initWiFi();
   }
   client.loop();
-  delay(10000);
+  delay(600000);
 }
