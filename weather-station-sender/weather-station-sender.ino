@@ -22,8 +22,8 @@ float lux;
 #include <BH1750.h>
 BH1750 lightMeter;
 
-const char* ssid = "surebelletjes";
-const char* password = "OnlyYou197";
+const char* ssid = "";
+const char* password = "";
 
 const char* mqtt_server = "145.24.222.116";
 const char* mqtt_user = "minor";
