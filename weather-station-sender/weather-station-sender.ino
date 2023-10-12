@@ -1,17 +1,10 @@
-/*********
-  Rui Santos
-  Complete instructions at https://RandomNerdTutorials.com/esp32-ble-server-client/
-  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
-  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-*********/
-
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <DHT.h> // Include the DHT library
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 // BLE server name
 #define bleServerName "DHT11_ESP32"
@@ -24,101 +17,100 @@ DHT dht(DHTPIN, DHTTYPE);
 
 float temp;
 float hum;
+float lux;
 
-// Timer variables
-unsigned long lastTime = 0;
-unsigned long timerDelay = 30000;
+#include <BH1750.h>
+BH1750 lightMeter;
 
-bool deviceConnected = false;
+const char* ssid = "surebelletjes";
+const char* password = "OnlyYou197";
 
-// See the following for generating UUIDs:
-// https://www.uuidgenerator.net/
-#define SERVICE_UUID "91bad492-b950-4226-aa2b-4ede9fa42f59"
+const char* mqtt_server = "145.24.222.116";
+const char* mqtt_user = "minor";
+const char* mqtt_pass = "smartthings2023";
+const char* api_server = "http://145.24.222.116:8000/dashboard/weather/";
 
-// Temperature Characteristic and Descriptor
-BLECharacteristic bmeTemperatureCelsiusCharacteristics("cba1d466-344c-4be3-ab3f-189f80dd7518", BLECharacteristic::PROPERTY_NOTIFY);
-BLEDescriptor bmeTemperatureCelsiusDescriptor(BLEUUID((uint16_t)0x2902));
+WiFiClient wifi_client;
+// WiFiClientSecure wifi_client;
+PubSubClient client(wifi_client);
 
-// Humidity Characteristic and Descriptor
-BLECharacteristic bmeHumidityCharacteristics("ca73b3ba-39f6-4ab3-91ae-186dc9577d99", BLECharacteristic::PROPERTY_NOTIFY);
-BLEDescriptor bmeHumidityDescriptor(BLEUUID((uint16_t)0x2903));
+long last_msg = 0;
+char msg[50];
+int value = 0;
 
-// Setup callbacks onConnect and onDisconnect
-class MyServerCallbacks: public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-  };
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
+void callback(char* topic, byte* message, unsigned int length);
+void reconnect();
+
+bool mqttConnect(){
+  client.setServer(mqtt_server, 8884);
+  // Serial.println(CA_KEY);
+  Serial.print("Connecting to MQTT broker");
+  while(!client.connected()){
+    if(client.connect("esp32", mqtt_user, mqtt_pass)){
+      Serial.println("CONNECTED TO MQTT");
+    }else{
+      Serial.print("Failed with state ");
+      char err_buf[100];
+      Serial.println(client.state());
+      delay(2000);
+    }
+    Serial.print(".");
   }
-};
+  Serial.println();
+  client.subscribe("incoming");
+  return true;
+}
+
+void initWiFi(){
+  WiFi.mode(WIFI_STA);
+  // WiFi.begin(ssid, password, 11, bssid, true);
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
+  while(WiFi.status() != WL_CONNECTED){
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println(WiFi.localIP());
+  // wifi_client.setCACert(CA_KEY);
+  mqttConnect();
+ }
 
 void setup() {
   // Start serial communication 
   Serial.begin(115200);
 
-  // Create the BLE Device
-  BLEDevice::init(bleServerName);
-
-  // Create the BLE Server
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  // Create the BLE Service
-  BLEService *bmeService = pServer->createService(SERVICE_UUID);
-
-  // Create BLE Characteristics and Create a BLE Descriptor
-  // Temperature
-  bmeService->addCharacteristic(&bmeTemperatureCelsiusCharacteristics);
-  bmeTemperatureCelsiusDescriptor.setValue("DHT11 temperature Celsius");
-  bmeTemperatureCelsiusCharacteristics.addDescriptor(&bmeTemperatureCelsiusDescriptor);
-
-  // Humidity
-  bmeService->addCharacteristic(&bmeHumidityCharacteristics);
-  bmeHumidityDescriptor.setValue("DHT11 humidity");
-  bmeHumidityCharacteristics.addDescriptor(new BLE2902());
-
-  // Start the service
-  bmeService->start();
-
-  // Start advertising
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pServer->getAdvertising()->start();
-  Serial.println("Waiting a client connection to notify...");
-
   // Initialize the DHT sensor
   dht.begin();
+
+  Wire.begin();
+  lightMeter.begin();
+
+  // Initialize WIFI
+  initWiFi();
 }
 
 void loop() {
-  if (deviceConnected) {
-    if ((millis() - lastTime) > timerDelay) {
-      // Read temperature and humidity from DHT sensor
-      temp = dht.readTemperature();
-      hum = dht.readHumidity();
 
-      // Notify temperature reading from DHT sensor
-      static char temperatureCTemp[6];
-      dtostrf(temp, 6, 2, temperatureCTemp);
-      // Set temperature Characteristic value and notify connected client
-      bmeTemperatureCelsiusCharacteristics.setValue(temperatureCTemp);
-      bmeTemperatureCelsiusCharacteristics.notify();
-      Serial.print("Temperature Celsius: ");
-      Serial.print(temp);
-      Serial.print(" ºC");
-
-      // Notify humidity reading from DHT sensor
-      static char humidityTemp[6];
-      dtostrf(hum, 6, 2, humidityTemp);
-      // Set humidity Characteristic value and notify connected client
-      bmeHumidityCharacteristics.setValue(humidityTemp);
-      bmeHumidityCharacteristics.notify();   
-      Serial.print(" - Humidity: ");
-      Serial.print(hum);
-      Serial.println(" %");
-
-      lastTime = millis();
+   // Read temperature and humidity from DHT sensor
+   temp = dht.readTemperature();
+   hum = dht.readHumidity();
+   lux = lightMeter.readLightLevel();
+   
+  if(WiFi.status() == WL_CONNECTED){
+    if(client.connected()){
+       String data = "{\"user\":\"KasperOfzeau\", \"weather_station\": 4, \"data\": {\"temperature\":\""+ (String)temp+"\",\"humidity\":\""+ (String)hum+"\",\"light_intensity\":\""+ (String)lux+"\"}}";
+      if(!isnan(temp) && !isnan(hum)){
+        Serial.print("Sent: ");
+        Serial.println(data);
+        const char* d = data.c_str();
+        client.publish("test", d);
+      }
+    }else{
+      mqttConnect();
     }
+  }else{
+    initWiFi();
   }
+  client.loop();
+  delay(10000);
 }

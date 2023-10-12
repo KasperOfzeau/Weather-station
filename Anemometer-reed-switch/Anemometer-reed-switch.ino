@@ -30,7 +30,9 @@ void loop() {
 
 void countRotation() {
   unsigned long currentTime = millis();
-  elapsedTime = currentTime - lastTime;
-  lastTime = currentTime;
-  rotationCount++;
+  if(currentTime - lastTime > 5) {
+    elapsedTime = currentTime - lastTime;
+    lastTime = currentTime;
+    rotationCount++;
+  }
 }
