@@ -7,14 +7,22 @@
 
 const char* ssid = "";
 const char* password = "";
-unsigned long lastFetchTime = 0;
-const unsigned long fetchInterval = 10000; // 10 seconds (in milliseconds)
+unsigned long lastFetchTime = 300000;
+const unsigned long fetchInterval = 150000; // 2.5 min (in milliseconds)
+
+float humidity;
+float temperature;
+float lux;
+String timeString;
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
  
 //Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+#define LED_BT_BLUE 2  // Internal LED (or LED on the pin D2) for the connection indication (connected LED ON / disconnected LED OFF)
+#define LED_BT_RED 15  // LED (LED on the pin D4) for the connection indication (connected LED OFF / disconnected LED ON)
 
 // 'Blog_Parrot-Neonate-Care_Temp-and-humidity', 128x64px
 const unsigned char myBitmap [] PROGMEM = {
@@ -86,6 +94,12 @@ const unsigned char myBitmap [] PROGMEM = {
 
 void setup() {
   Serial.begin(115200);
+
+  pinMode(LED_BT_BLUE, OUTPUT);
+  pinMode(LED_BT_RED, OUTPUT);
+  digitalWrite(LED_BT_BLUE, LOW);
+  digitalWrite(LED_BT_RED, HIGH); 
+
   connectToWiFi();
 
  //OLED display setup
@@ -109,6 +123,7 @@ void connectToWiFi() {
     delay(1000);
     Serial.println("Connecting to WiFi...");
   }
+  digitalWrite(LED_BT_RED, LOW);   
   Serial.println("Connected to Wi-Fi");
 }
 
@@ -117,6 +132,7 @@ void fetchWeatherData() {
   String url = "https://whub.duckdns.org/api/weather/?id=&ordering=-id&time__time=&time__time__gte=&time__time__lte=&user=5&weather_station=4&limit=1";
 
   http.begin(url);
+  digitalWrite(LED_BT_BLUE, HIGH);
 
   int httpResponseCode = http.GET();
 
@@ -128,54 +144,34 @@ void fetchWeatherData() {
 
     if (!error) {
       JsonObject result = doc["results"][0];
-      const char* time = result["time"];
-      float humidity = result["data"]["humidity"];
-      float temperature = result["data"]["temperature"];
-      float lux = result["data"]["light_intensity"];
+      const char* timeDate = result["time"];
+      humidity = result["data"]["humidity"];
+      temperature = result["data"]["temperature"];
+      lux = result["data"]["light_intensity"];
 
-      //clear display
-      display.clearDisplay();
-    
-      // display temperature
-      display.setTextSize(1);
-      display.setCursor(60,0);
-      display.print("Temperature ");
-      display.setTextSize(2);
-      display.setCursor(60,10);
-      display.print(temperature);
+      // Find the position of the 'T' character in the timestamp
+      const char* timeStart = strchr(timeDate, 'T');
+
+      // Move the pointer one position ahead to start with the time part
+      timeStart++;
       
-      // display humidity
-      display.setTextSize(1);
-      display.setCursor(60, 35);
-      display.print("Humidity ");
-      display.setTextSize(2);
-      display.setCursor(60, 45);
-      display.print(humidity);
-      
-      display.drawBitmap(0, 0, myBitmap, 128, 64, WHITE);
-      display.display(); 
+       // Extract only the hours and minutes part, which is 5 characters long (HH:MM)
+       char time[6];
+       strncpy(time, timeStart, 5);
+       time[5] = '\0'; // Null-terminate the string 
+       timeString = String(time);
 
-      delay(5000);
-
-      //clear display
-      display.clearDisplay();
-
-      //display lux 
-      display.setTextSize(1);
-      display.setCursor(0, 15);
-      display.print("Light intensity: ");
-      display.setTextSize(2);
-      display.setCursor(0, 25);
-      display.print(lux);
-      display.print("lux");
-      display.display();
+      digitalWrite(LED_BT_BLUE, LOW);
+      digitalWrite(LED_BT_RED, LOW); 
     } else {
+      digitalWrite(LED_BT_RED, HIGH); 
       Serial.print("JSON parsing failed: ");
       Serial.println(error.c_str());
     }
 
     http.end();
   } else {
+    digitalWrite(LED_BT_RED, HIGH); 
     Serial.print("Error fetching weather data. HTTP error code: ");
     Serial.println(httpResponseCode);
   }
@@ -189,5 +185,49 @@ void loop() {
     lastFetchTime = currentTime;
   }
 
-  // Your other loop code here
+  //clear display
+  display.clearDisplay();
+
+  // display temperature
+  display.setTextSize(1);
+  display.setCursor(60,0);
+  display.print("Temperature ");
+  display.setTextSize(2);
+  display.setCursor(60,10);
+  display.print(temperature);
+  
+  // display humidity
+  display.setTextSize(1);
+  display.setCursor(60, 35);
+  display.print("Humidity ");
+  display.setTextSize(2);
+  display.setCursor(60, 45);
+  display.print(humidity);
+  
+  display.drawBitmap(0, 0, myBitmap, 128, 64, WHITE);
+  display.display(); 
+
+  delay(5000);
+
+  //clear display
+  display.clearDisplay();
+
+  //display lux 
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("Light intensity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 10);
+  display.print(lux);
+  display.print("lux");
+
+  //display Time measurement
+  display.setTextSize(1);
+  display.setCursor(0,35);
+  display.print("Time measurement: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(timeString);
+  display.display();
+  delay(5000);
 }
